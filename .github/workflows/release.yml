@@ -43,9 +43,9 @@ jobs:
           cmake --build build-test
           ctest --test-dir build-test --output-on-failure
 
-      - name: Generate Benchmark Report
+      - name: Generate Benchmark SVG Charts
         run: |
-          python3 benchmarks/visualize.py --html benchmarks/report.html
+          python3 benchmarks/generate_charts.py
 
       - name: Package Header-Only Distribution
         run: |
@@ -66,5 +66,5 @@ jobs:
           files: |
             QmlPromise-${{ github.ref_name }}.tar.gz
             QmlPromise-${{ github.ref_name }}.zip
-            benchmarks/report.html
+            benchmarks/charts/*.svg
           generate_release_notes: true

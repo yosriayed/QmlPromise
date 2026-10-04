@@ -154,14 +154,29 @@ Compared to traditional C++ ↔ QML asynchronous patterns (such as `QFutureWatch
 - **Virtually identical cost (+0.3 µs, 1.0×)** in real-world worker threadpool execution (Batch 1).
 - **>100,000 ops/second** throughput on modern hardware.
 
-### Benchmark Dashboard & Visualization
+### Delivery Latency Comparison (Batch 64)
 
-An interactive HTML visualization dashboard and summary reporting tool is included:
-```bash
-python3 benchmarks/visualize.py --html benchmarks/report.html
-```
+![C++ to QML Asynchronous Delivery Latency](benchmarks/charts/latency-comparison.svg)
 
-See the [benchmarks README](benchmarks/README.md) for detailed analysis, methodology, and reproduction steps.
+### Marginal Overhead vs QFutureWatcher Callback
+
+![Marginal Overhead vs Callback](benchmarks/charts/overhead-vs-callbacks.svg)
+
+### Peak Throughput (Operations / sec)
+
+![Peak Throughput Comparison](benchmarks/charts/throughput-comparison.svg)
+
+### Capabilities & Ergonomics Comparison Matrix
+
+| Feature | Raw Queued Signal | Watcher Signal | Watcher Callback | Continuation Signal | **QmlPromise** |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **QML API Syntax** | Signal handler | Signal handler | JS Callback | Signal handler | **Standard `.then()`** |
+| **Multi-Future Composition** | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual | **✅ `Promise.all()`, `race()`** |
+| **Exception Translation** | ❌ Custom error signals | ❌ Custom error signals | ❌ Dual callbacks | ❌ Custom error signals | **✅ Automatic `.catch()`** |
+| **Cleanup Guarantees** | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual | **✅ Supported `.finally()`** |
+| **C++ Object Lifecycle** | Stateful property | `QFutureWatcher` alloc | `QFutureWatcher` alloc | Medium | **✅ Zero (Header-only)** |
+
+See the [benchmarks README](benchmarks/README.md) for full methodology, standalone microbenchmarks, and reproduction instructions.
 
 ## Requirements
 

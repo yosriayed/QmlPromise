@@ -13,10 +13,10 @@ cmake --build /tmp/qmlpromise-benchmark
 /tmp/qmlpromise-benchmark/bench_qml_promise > benchmarks/results.csv
 /tmp/qmlpromise-benchmark/bench_qml_promise --micro > benchmarks/components.csv
 python3 benchmarks/summarize.py
-python3 benchmarks/visualize.py --html benchmarks/report.html
+python3 benchmarks/generate_charts.py
 ```
 
-Generating `report.html` creates a self-contained, interactive HTML dashboard (using Chart.js via CDN) comparing `QmlPromise` directly against baseline asynchronous mechanisms (signals, continuations, watcher callbacks), displaying overhead deltas, latency distributions across methods and batches, throughput (ops/sec), and execution time breakdowns.
+`generate_charts.py` regenerates the standalone SVG vector graphics in `charts/` that are embedded directly in the repository documentation.
 
 `results.csv` and `components.csv` contain the latest measurements with explicit polyfill
 installation. `*-cached-auto.csv` preserves the intermediate cached implementation that
@@ -82,6 +82,12 @@ GCC 16.2.1, CMake Release build. CPU frequency and affinity were not locked.
 Results describe this machine and Qt version, not a guarantee for other platforms.
 
 ### Comparison: QmlPromise vs Baseline Async Mechanisms
+
+![C++ to QML Asynchronous Delivery Latency](charts/latency-comparison.svg)
+
+![Marginal Overhead vs Callback](charts/overhead-vs-callbacks.svg)
+
+![Peak Throughput Comparison](charts/throughput-comparison.svg)
 
 Median elapsed microseconds per operation, including event-loop pumping and cleanup:
 

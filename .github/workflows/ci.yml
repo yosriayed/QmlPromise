@@ -124,15 +124,7 @@ jobs:
         run: |
           ./build-benchmarks/bench_qml_promise --micro
 
-      - name: Generate Benchmark Visualization & GitHub Summary
+      - name: Generate Benchmark SVG Charts & GitHub Step Summary
         run: |
-          python3 benchmarks/visualize.py \
-            --html benchmarks/report.html \
-            --github-summary
-
-      - name: Upload Benchmark Visualization Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-visualization-report
-          path: benchmarks/report.html
-          retention-days: 30
+          python3 benchmarks/generate_charts.py
+          python3 benchmarks/visualize.py --github-summary

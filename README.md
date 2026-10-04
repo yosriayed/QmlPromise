@@ -146,38 +146,6 @@ target_link_libraries(my_qml_app PRIVATE
 When consumed via `FetchContent`, example apps and tests are automatically disabled, leaving only the lightweight `INTERFACE` library.
 
 ---
-
-## Performance & Benchmarks
-
-Compared to traditional C++ ↔ QML asynchronous patterns (such as `QFutureWatcher` callbacks or custom queued signals), `QmlPromise` provides native ECMAScript `Promise` semantics with negligible overhead:
-- **Faster than ad-hoc `QFutureWatcher` callbacks** for immediate/ready results (**4.63 µs vs 5.70 µs**, -1.07 µs).
-- **Virtually identical cost (+0.11 µs, 1.0×)** in real-world worker threadpool execution (Batch 1).
-- **>215,000 ops/second** peak throughput on modern hardware.
-
-### Delivery Latency Comparison (Batch 64)
-
-![C++ to QML Asynchronous Delivery Latency](benchmarks/charts/latency-comparison.svg)
-
-### Marginal Overhead vs QFutureWatcher Callback
-
-![Marginal Overhead vs Callback](benchmarks/charts/overhead-vs-callbacks.svg)
-
-### Peak Throughput (Operations / sec)
-
-![Peak Throughput Comparison](benchmarks/charts/throughput-comparison.svg)
-
-### Capabilities & Ergonomics Comparison Matrix
-
-| Feature | Raw Queued Signal | Watcher Signal | Watcher Callback | Continuation Signal | **QmlPromise** |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **QML API Syntax** | Signal handler | Signal handler | JS Callback | Signal handler | **Standard `.then()`** |
-| **Multi-Future Composition** | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual | **✅ `Promise.all()`, `race()`** |
-| **Exception Translation** | ❌ Custom error signals | ❌ Custom error signals | ❌ Dual callbacks | ❌ Custom error signals | **✅ Automatic `.catch()`** |
-| **Cleanup Guarantees** | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual | **✅ Supported `.finally()`** |
-| **C++ Object Lifecycle** | Stateful property | `QFutureWatcher` alloc | `QFutureWatcher` alloc | Medium | **✅ Zero (Header-only)** |
-
-See the [benchmarks README](benchmarks/README.md) for full methodology, standalone microbenchmarks, and reproduction instructions.
-
 ## Requirements
 
 - **C++20**

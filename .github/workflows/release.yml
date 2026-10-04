@@ -26,13 +26,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.0'
-          modules: 'qtdeclarative'
           cache: true
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Verify Unit Tests
         run: |
@@ -42,10 +36,6 @@ jobs:
             -DQMLPROMISE_BUILD_DEMO=OFF
           cmake --build build-test
           ctest --test-dir build-test --output-on-failure
-
-      - name: Generate Benchmark SVG Charts
-        run: |
-          python3 benchmarks/generate_charts.py
 
       - name: Package Header-Only Distribution
         run: |
@@ -66,5 +56,4 @@ jobs:
           files: |
             QmlPromise-${{ github.ref_name }}.tar.gz
             QmlPromise-${{ github.ref_name }}.zip
-            benchmarks/charts/*.svg
           generate_release_notes: true

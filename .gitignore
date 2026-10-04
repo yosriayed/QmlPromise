@@ -7,4 +7,3 @@ dist/
 *.user
 __pycache__/
 *.pyc
-benchmarks/*.html

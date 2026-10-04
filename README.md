@@ -132,7 +132,7 @@ include(FetchContent)
 FetchContent_Declare(
     QmlPromise
     GIT_REPOSITORY https://github.com/your-username/QmlPromise.git
-    GIT_TAG        v1.0.0 # or main
+    GIT_TAG        0.1 # or main
 )
 FetchContent_MakeAvailable(QmlPromise)
 

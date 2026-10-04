@@ -1,5 +1,10 @@
 # QmlPromise
 
+[![CI](https://github.com/yosriayed/QmlPromise/actions/workflows/ci.yml/badge.svg)](https://github.com/yosriayed/QmlPromise/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Qt: 6.5+](https://img.shields.io/badge/Qt-6.5+-41CD52.svg)](https://www.qt.io/)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg)](https://en.cppreference.com/w/cpp/20)
+
 A lightweight, **header-only C++ library** that bridges Qt's `QFuture<T>` and `QPromise<T>` to native ECMAScript **JavaScript Promises (`QJSValue`)** in QML for **Qt 6.5+**.
 
 ---
@@ -142,11 +147,17 @@ When consumed via `FetchContent`, example apps and tests are automatically disab
 
 ---
 
-## Performance
+## Performance & Benchmarks
 
 The resolver factory is cached per JavaScript engine; subsequent conversions reuse it
-without reevaluating its source. See the [benchmarks](benchmarks/README.md) for measured
-overhead, comparisons with signals/callbacks, and reproduction instructions.
+without reevaluating its source (achieving up to **27× speedup** in batched delivery).
+
+An interactive HTML visualization dashboard and summary reporting tool is included:
+```bash
+python3 benchmarks/visualize.py --html benchmarks/report.html
+```
+
+See the [benchmarks README](benchmarks/README.md) for detailed analysis, methodology, and reproduction steps.
 
 ## Requirements
 

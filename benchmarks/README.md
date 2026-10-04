@@ -13,7 +13,10 @@ cmake --build /tmp/qmlpromise-benchmark
 /tmp/qmlpromise-benchmark/bench_qml_promise > benchmarks/results.csv
 /tmp/qmlpromise-benchmark/bench_qml_promise --micro > benchmarks/components.csv
 python3 benchmarks/summarize.py
+python3 benchmarks/visualize.py --html benchmarks/report.html
 ```
+
+Generating `report.html` creates a self-contained, interactive HTML dashboard (using Chart.js via CDN) displaying speedup comparisons, latency charts across methods and batches, throughput (ops/sec), and component breakdowns.
 
 `results.csv` and `components.csv` contain the latest measurements with explicit polyfill
 installation. `*-cached-auto.csv` preserves the intermediate cached implementation that

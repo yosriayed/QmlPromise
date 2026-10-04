@@ -1,1 +1,10 @@
-build/
+build*/
+cmake-build-*/
+dist/
+*.tar.gz
+*.zip
+.cache/
+*.user
+__pycache__/
+*.pyc
+benchmarks/*.html

@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu GCC 14
+            os: ubuntu-24.04
+            compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            qt_version: '6.8.0'
+          - name: Ubuntu Clang 18
+            os: ubuntu-24.04
+            compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+            qt_version: '6.8.0'
+          - name: macOS AppleClang
+            os: macos-14
+            compiler: apple-clang
+            cc: clang
+            cxx: clang++
+            qt_version: '6.8.0'
+          - name: Windows MSVC 2022
+            os: windows-2022
+            compiler: msvc
+            qt_version: '6.8.0'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Developer Command Prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        run: |
+          choco install ninja
+
+      - name: Setup Qt ${{ matrix.qt_version }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt_version }}
+          modules: 'qtdeclarative'
+          cache: true
+
+      - name: Configure CMake
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQMLPROMISE_BUILD_TESTS=ON \
+            -DQMLPROMISE_BUILD_DEMO=ON
+
+      - name: Build Library, Tests, and Demo
+        run: cmake --build build --config Release
+
+      - name: Run Unit Tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  benchmark:
+    name: Benchmark & Visualization
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev
+
+      - name: Setup Qt 6.8
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          modules: 'qtdeclarative'
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build Benchmark Suite
+        run: |
+          cmake -S benchmarks -B build-benchmarks -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-benchmarks
+
+      - name: Run Benchmark Smoke Test
+        run: |
+          ./build-benchmarks/bench_qml_promise --micro
+
+      - name: Generate Benchmark Visualization & GitHub Summary
+        run: |
+          python3 benchmarks/visualize.py \
+            --html benchmarks/report.html \
+            --github-summary
+
+      - name: Upload Benchmark Visualization Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-visualization-report
+          path: benchmarks/report.html
+          retention-days: 30

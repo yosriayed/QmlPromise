@@ -25,24 +25,24 @@
 <line x1="60" y1="80.0" x2="810" y2="80.0" class="grid"/>
 <text x="52" y="84.0" class="tick-text">+8 µs</text>
 <line x1="60" y1="290" x2="810" y2="290" class="axis"/>
-<rect x="121.8" y="190.3" width="64" height="99.7" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
-<text x="153.8" y="180.3" class="delta-text">+3.80 µs</text>
-<text x="153.8" y="164.3" class="sub-note">(1.6× callback time)</text>
+<rect x="121.8" y="284.0" width="64" height="6.0" rx="3" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
+<text x="153.8" y="274.0" class="delta-text">-1.07 µs</text>
+<text x="153.8" y="258.0" class="sub-note" style="fill: #3fb950; font-weight: 600;">(Faster than callback!)</text>
 <text x="153.8" y="312" class="col-title">Ready (Batch 64)</text>
 <text x="153.8" y="328" class="col-desc">Completed future, amortized throughput</text>
-<rect x="309.2" y="187.3" width="64" height="102.7" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
-<text x="341.2" y="177.3" class="delta-text">+3.91 µs</text>
-<text x="341.2" y="161.3" class="sub-note">(1.6× callback time)</text>
+<rect x="309.2" y="196.6" width="64" height="93.4" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
+<text x="341.2" y="186.6" class="delta-text">+3.56 µs</text>
+<text x="341.2" y="170.6" class="sub-note">(1.5× callback time)</text>
 <text x="341.2" y="312" class="col-title">Pending (Batch 64)</text>
 <text x="341.2" y="328" class="col-desc">Next event loop turn, amortized throughput</text>
-<rect x="496.8" y="187.7" width="64" height="102.3" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
-<text x="528.8" y="177.7" class="delta-text">+3.90 µs</text>
-<text x="528.8" y="161.7" class="sub-note">(1.4× callback time)</text>
+<rect x="496.8" y="228.8" width="64" height="61.2" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
+<text x="528.8" y="218.8" class="delta-text">+2.33 µs</text>
+<text x="528.8" y="202.8" class="sub-note">(1.2× callback time)</text>
 <text x="528.8" y="312" class="col-title">Worker (Batch 64)</text>
 <text x="528.8" y="328" class="col-desc">QtConcurrent thread pool, amortized</text>
-<rect x="684.2" y="282.0" width="64" height="8.0" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
-<text x="716.2" y="272.0" class="delta-text">+0.30 µs</text>
-<text x="716.2" y="256.0" class="sub-note">(1.0× callback time)</text>
+<rect x="684.2" y="287.2" width="64" height="2.8" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
+<text x="716.2" y="277.2" class="delta-text">+0.11 µs</text>
+<text x="716.2" y="261.2" class="sub-note">(1.0× callback time)</text>
 <text x="716.2" y="312" class="col-title">Worker (Single B1)</text>
 <text x="716.2" y="328" class="col-desc">Individual request roundtrip in real threads</text>
 </svg>

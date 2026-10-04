@@ -104,7 +104,7 @@ inline bool createPromiseResolvers(QJSEngine *engine, QJSValue &promiseOut, QJSV
                             resolve = res;
                             reject = rej;
                         });
-                        return { promise, resolve, reject };
+                        return [promise, resolve, reject];
                     })
                 )js"
             )
@@ -122,11 +122,58 @@ inline bool createPromiseResolvers(QJSEngine *engine, QJSValue &promiseOut, QJSV
         return false;
     }
 
-    promiseOut = helper.property(QStringLiteral("promise"));
-    resolveOut = helper.property(QStringLiteral("resolve"));
-    rejectOut = helper.property(QStringLiteral("reject"));
+    if (helper.isArray()) {
+        promiseOut = helper.property(0);
+        resolveOut = helper.property(1);
+        rejectOut = helper.property(2);
+    } else {
+        promiseOut = helper.property(QStringLiteral("promise"));
+        resolveOut = helper.property(QStringLiteral("resolve"));
+        rejectOut = helper.property(QStringLiteral("reject"));
+    }
 
     return promiseOut.isObject() && resolveOut.isCallable() && rejectOut.isCallable();
+}
+
+template <typename Val>
+inline QJSValue toScriptValueHelper(QJSEngine *engine, Val &&val)
+{
+    using Decayed = std::decay_t<Val>;
+    if constexpr (std::is_same_v<Decayed, QJSValue>) {
+        return std::forward<Val>(val);
+    } else if constexpr (std::is_same_v<Decayed, int> ||
+                          std::is_same_v<Decayed, uint> ||
+                          std::is_same_v<Decayed, double> ||
+                          std::is_same_v<Decayed, bool> ||
+                          std::is_same_v<Decayed, QString>) {
+        return QJSValue(std::forward<Val>(val));
+    } else {
+        return engine->toScriptValue(std::forward<Val>(val));
+    }
+}
+
+template <typename T>
+inline void settlePromise(QJSEngine *engine, QFuture<T> future, const QJSValue &resolve, const QJSValue &reject)
+{
+    try {
+        // Exceptions also mark a future canceled; rethrow them before testing cancellation.
+        future.waitForFinished();
+        if (future.isCanceled()) {
+            reject.call({ QStringLiteral("Operation was canceled.") });
+        } else if constexpr (std::is_void_v<T>) {
+            resolve.call();
+        } else {
+            if (future.resultCount() == 0) {
+                reject.call({ QStringLiteral("Operation finished without a result.") });
+                return;
+            }
+            resolve.call({ toScriptValueHelper(engine, future.result()) });
+        }
+    } catch (const std::exception &e) {
+        reject.call({ QString::fromUtf8(e.what()) });
+    } catch (...) {
+        reject.call({ QStringLiteral("An unknown error occurred in the background task.") });
+    }
 }
 
 } // namespace detail
@@ -161,6 +208,14 @@ QJSValue toPromise(QObject *context, QFuture<T> future, QJSEngine *engine = null
         return QJSValue();
     }
 
+    // Fast-path: if the future is already completed, settle the Promise immediately
+    // without allocating a QFutureWatcher, setting up signal-slot connections, or
+    // posting deferred deletion events to the event loop.
+    if (future.isFinished()) {
+        detail::settlePromise(engine, future, resolve, reject);
+        return promise;
+    }
+
     // Each bridge observes independently, leaving the future's continuation slot free.
     // Parenting to the engine prevents callbacks from outliving the JS runtime.
     auto *watcher = new QFutureWatcher<T>(engine);
@@ -175,26 +230,7 @@ QJSValue toPromise(QObject *context, QFuture<T> future, QJSEngine *engine = null
             return;
         }
 
-        auto completed = watcher->future();
-        try {
-            // Exceptions also mark a future canceled; rethrow them before testing cancellation.
-            completed.waitForFinished();
-            if (completed.isCanceled()) {
-                reject.call({ QStringLiteral("Operation was canceled.") });
-            } else if constexpr (std::is_void_v<T>) {
-                resolve.call();
-            } else {
-                if (completed.resultCount() == 0) {
-                    reject.call({ QStringLiteral("Operation finished without a result.") });
-                    return;
-                }
-                resolve.call({ engine->toScriptValue(completed.result()) });
-            }
-        } catch (const std::exception &e) {
-            reject.call({ QString::fromUtf8(e.what()) });
-        } catch (...) {
-            reject.call({ QStringLiteral("An unknown error occurred in the background task.") });
-        }
+        detail::settlePromise(engine, watcher->future(), resolve, reject);
     });
     watcher->setFuture(future);
 

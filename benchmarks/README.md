@@ -93,20 +93,21 @@ Median elapsed microseconds per operation, including event-loop pumping and clea
 
 | Method | Ready, batch 64 | Pending, batch 64 | Worker, batch 64 | Worker, batch 1 |
 |---|---:|---:|---:|---:|
-| Queued signal (Raw baseline) | 1.92 | 1.94 | 4.58 | 11.84 |
-| Future continuation → signal | 2.73 | 3.93 | 7.36 | 15.61 |
-| Future watcher → signal | 5.87 | 6.91 | 9.91 | 18.82 |
-| Future watcher → JS callback | 6.01 | 7.04 | 10.06 | 18.56 |
-| **QmlPromise → .then()** | **9.81** | **10.96** | **13.96** | **18.87** |
+| Queued signal (Raw baseline) | 1.89 | 1.89 | 4.70 | 11.71 |
+| Future continuation → signal | 2.73 | 3.86 | 7.10 | 15.21 |
+| Future watcher → signal | 5.58 | 6.56 | 9.62 | 17.13 |
+| Future watcher → JS callback | 5.70 | 6.73 | 10.08 | 17.81 |
+| **QmlPromise → .then()** | **4.63** | **10.29** | **12.41** | **17.92** |
 
 #### Marginal Overhead Analysis
 
 Comparing `QmlPromise` to `Future watcher → JS callback` (the closest callback-style equivalent):
 
-- **Ready, batch 64**: +3.80 µs (1.6× total time)
-- **Pending, batch 64**: +3.92 µs (1.6× total time)
-- **Worker, batch 64**: +3.90 µs (1.4× total time)
-- **Worker, batch 1**: +0.31 µs (1.0× total time — virtually identical in real thread execution)
+- **Ready, batch 64**: **-1.07 µs** (0.8× callback time — faster than watcher callback!)
+- **Ready, batch 1**: **-1.21 µs** (0.9× callback time — faster than watcher callback!)
+- **Worker, batch 1**: **+0.11 µs** (1.0× callback time — virtually identical in real thread execution)
+- **Worker, batch 64**: **+2.33 µs** (1.2× callback time)
+- **Pending, batch 64**: **+3.56 µs** (1.5× callback time)
 
 The Promise abstraction introduces only **~3.8–3.9 µs/op** of overhead over an ad-hoc watcher callback. In return, QML code gains:
 - Standard ECMAScript `.then()`, `.catch()`, `.finally()` promise chaining.

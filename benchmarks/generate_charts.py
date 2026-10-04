@@ -189,19 +189,22 @@ def generate_overhead_chart(stats: dict, output_path: Path):
 
         qp = stats.get((w_key, b_size, "qmlpromise"), 0.0)
         cb = stats.get((w_key, b_size, "watcher_callback"), 0.0)
-        delta = max(0.0, qp - cb)
-
-        bar_h = (delta / max_y) * plot_height
-        bar_x = col_center - bar_width / 2
-        bar_y = y_zero - bar_h
-
-        # Bar
-        svg.append(f'<rect x="{bar_x:.1f}" y="{bar_y:.1f}" width="{bar_width}" height="{bar_h:.1f}" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>')
-
-        # Delta label
-        svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 10:.1f}" class="delta-text">+{delta:.2f} µs</text>')
-        ratio = (qp / cb) if cb > 0 else 1.0
-        svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 26:.1f}" class="sub-note">({ratio:.1f}× callback time)</text>')
+        delta = qp - cb
+        if delta < 0:
+            bar_h = 6.0
+            bar_x = col_center - bar_width / 2
+            bar_y = y_zero - bar_h
+            svg.append(f'<rect x="{bar_x:.1f}" y="{bar_y:.1f}" width="{bar_width}" height="{bar_h:.1f}" rx="3" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>')
+            svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 10:.1f}" class="delta-text">{delta:.2f} µs</text>')
+            svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 26:.1f}" class="sub-note" style="fill: #3fb950; font-weight: 600;">(Faster than callback!)</text>')
+        else:
+            bar_h = max(2.0, (delta / max_y) * plot_height)
+            bar_x = col_center - bar_width / 2
+            bar_y = y_zero - bar_h
+            svg.append(f'<rect x="{bar_x:.1f}" y="{bar_y:.1f}" width="{bar_width}" height="{bar_h:.1f}" rx="4" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>')
+            svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 10:.1f}" class="delta-text">+{delta:.2f} µs</text>')
+            ratio = (qp / cb) if cb > 0 else 1.0
+            svg.append(f'<text x="{col_center:.1f}" y="{bar_y - 26:.1f}" class="sub-note">({ratio:.1f}× callback time)</text>')
 
         # Labels below x axis
         svg.append(f'<text x="{col_center:.1f}" y="{y_zero + 22}" class="col-title">{s_name}</text>')

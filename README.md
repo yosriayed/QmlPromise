@@ -150,9 +150,9 @@ When consumed via `FetchContent`, example apps and tests are automatically disab
 ## Performance & Benchmarks
 
 Compared to traditional C++ ↔ QML asynchronous patterns (such as `QFutureWatcher` callbacks or custom queued signals), `QmlPromise` provides native ECMAScript `Promise` semantics with negligible overhead:
-- **Only +3.8 µs/op overhead** compared to ad-hoc `QFutureWatcher` callbacks (Batch 64).
-- **Virtually identical cost (+0.3 µs, 1.0×)** in real-world worker threadpool execution (Batch 1).
-- **>100,000 ops/second** throughput on modern hardware.
+- **Faster than ad-hoc `QFutureWatcher` callbacks** for immediate/ready results (**4.63 µs vs 5.70 µs**, -1.07 µs).
+- **Virtually identical cost (+0.11 µs, 1.0×)** in real-world worker threadpool execution (Batch 1).
+- **>215,000 ops/second** peak throughput on modern hardware.
 
 ### Delivery Latency Comparison (Batch 64)
 

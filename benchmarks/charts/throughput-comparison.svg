@@ -25,18 +25,18 @@
 <text x="770.0" y="280" class="tick-text">600k</text>
 <line x1="180" y1="70" x2="180" y2="260" class="axis"/>
 <text x="168" y="93.0" class="row-label">Raw Queued Signal</text>
-<rect x="180" y="78.0" width="513.5" height="22" rx="3" fill="#8b949e"/>
-<text x="703.5" y="93.0" class="val-text">522,162 ops/s</text>
+<rect x="180" y="78.0" width="521.3" height="22" rx="3" fill="#8b949e"/>
+<text x="711.3" y="93.0" class="val-text">530,120 ops/s</text>
 <text x="168" y="131.0" class="row-label">Continuation Signal</text>
-<rect x="180" y="116.0" width="359.8" height="22" rx="3" fill="#58a6ff"/>
-<text x="549.8" y="131.0" class="val-text">365,867 ops/s</text>
+<rect x="180" y="116.0" width="360.7" height="22" rx="3" fill="#58a6ff"/>
+<text x="550.7" y="131.0" class="val-text">366,790 ops/s</text>
 <text x="168" y="169.0" class="row-label">Watcher Signal</text>
-<rect x="180" y="154.0" width="167.5" height="22" rx="3" fill="#d29922"/>
-<text x="357.5" y="169.0" class="val-text">170,338 ops/s</text>
+<rect x="180" y="154.0" width="176.2" height="22" rx="3" fill="#d29922"/>
+<text x="366.2" y="169.0" class="val-text">179,160 ops/s</text>
 <text x="168" y="207.0" class="row-label">Watcher Callback</text>
-<rect x="180" y="192.0" width="163.5" height="22" rx="3" fill="#f0883e"/>
-<text x="353.5" y="207.0" class="val-text">166,251 ops/s</text>
+<rect x="180" y="192.0" width="172.5" height="22" rx="3" fill="#f0883e"/>
+<text x="362.5" y="207.0" class="val-text">175,418 ops/s</text>
 <text x="168" y="245.0" class="row-label">QmlPromise</text>
-<rect x="180" y="230.0" width="100.2" height="22" rx="3" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
-<text x="290.2" y="245.0" class="val-text-green">101,885 ops/s</text>
+<rect x="180" y="230.0" width="212.4" height="22" rx="3" fill="#3fb950" stroke="#2ea043" stroke-width="1.5"/>
+<text x="402.4" y="245.0" class="val-text-green">216,035 ops/s</text>
 </svg>

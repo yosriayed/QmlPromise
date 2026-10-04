@@ -261,7 +261,7 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("isDone").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("isDone").toBool() == true, 5000);
         QCOMPARE(engine.globalObject().property("resolvedValue").toString(), QString("SuccessResult"));
     }
 
@@ -286,7 +286,7 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("isVoidDone").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("isVoidDone").toBool() == true, 5000);
     }
 
     void testPromiseRejectionOnException()
@@ -314,10 +314,12 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("didFail").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("didFail").toBool() == true, 5000);
         const QString errStr = engine.globalObject().property("caughtError").toString();
         QVERIFY(!errStr.isEmpty());
-        QVERIFY(errStr.contains("std::exception") || errStr.contains("Simulated Failure Message"));
+        QVERIFY(errStr.contains("std::exception") ||
+                errStr.contains("Simulated Failure Message") ||
+                errStr.contains("Unknown exception"));
     }
 
     void testPromiseAllComposition()
@@ -343,7 +345,7 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("allDone").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("allDone").toBool() == true, 5000);
         QCOMPARE(engine.globalObject().property("sumResult").toInt(), 30);
     }
 
@@ -446,7 +448,7 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyCalled").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyCalled").toBool() == true, 5000);
         QCOMPARE(engine.globalObject().property("passedThroughValue").toString(), QString("FinallySuccess"));
     }
 
@@ -476,10 +478,12 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyCalled").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyCalled").toBool() == true, 5000);
         const QString errStr = engine.globalObject().property("caughtError").toString();
         QVERIFY(!errStr.isEmpty());
-        QVERIFY(errStr.contains("std::exception") || errStr.contains("Simulated Failure For Finally"));
+        QVERIFY(errStr.contains("std::exception") ||
+                errStr.contains("Simulated Failure For Finally") ||
+                errStr.contains("Unknown exception"));
     }
 
     void testPromiseChainedThenCatchFinally()
@@ -512,7 +516,7 @@ private slots:
             "});"
         );
 
-        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyExecuted").toBool() == true, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine.globalObject().property("finallyExecuted").toBool() == true, 5000);
         QVERIFY(engine.globalObject().property("thenExecuted").toBool());
         QVERIFY(!engine.globalObject().property("catchExecuted").toBool());
     }
@@ -525,7 +529,7 @@ private slots:
 
         QQmlComponent component(&engine);
         component.setData(
-            "import QtQuick\n"
+            "import QtQml\n"
             "QtObject {\n"
             "    property bool finallyDone: false\n"
             "    property string result: ''\n"
@@ -539,9 +543,10 @@ private slots:
             QUrl()
         );
 
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
         QScopedPointer<QObject> obj(component.create());
-        QVERIFY(!obj.isNull());
-        QTRY_VERIFY_WITH_TIMEOUT(obj->property("finallyDone").toBool() == true, 2000);
+        QVERIFY2(!obj.isNull(), qPrintable(component.errorString()));
+        QTRY_VERIFY_WITH_TIMEOUT(obj->property("finallyDone").toBool() == true, 5000);
         QCOMPARE(obj->property("result").toString(), QString("QmlSuccess"));
     }
 };

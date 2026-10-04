@@ -7,6 +7,7 @@
 #include <QJSValue>
 #include <QPointer>
 #include <QVariant>
+#include <QException>
 #include <exception>
 #include <type_traits>
 
@@ -168,6 +169,18 @@ inline void settlePromise(QJSEngine *engine, QFuture<T> future, const QJSValue &
                 return;
             }
             resolve.call({ toScriptValueHelper(engine, future.result()) });
+        }
+    } catch (const QUnhandledException &ue) {
+        if (ue.exception()) {
+            try {
+                std::rethrow_exception(ue.exception());
+            } catch (const std::exception &inner) {
+                reject.call({ QString::fromUtf8(inner.what()) });
+            } catch (...) {
+                reject.call({ QStringLiteral("An unknown error occurred in the background task.") });
+            }
+        } else {
+            reject.call({ QString::fromUtf8(ue.what()) });
         }
     } catch (const std::exception &e) {
         reject.call({ QString::fromUtf8(e.what()) });

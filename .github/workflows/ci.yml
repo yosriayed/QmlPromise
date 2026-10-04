@@ -70,6 +70,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt_version }}
+          modules: 'qtdeclarative'
           cache: true
 
       - name: Configure CMake
@@ -87,4 +88,4 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Run Unit Tests
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --verbose

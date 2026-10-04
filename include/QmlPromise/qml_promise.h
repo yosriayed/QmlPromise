@@ -6,6 +6,7 @@
 #include <QJSEngine>
 #include <QJSValue>
 #include <QPointer>
+#include <QVariant>
 #include <exception>
 #include <type_traits>
 
@@ -13,12 +14,20 @@ namespace QmlPromise {
 
 
 /**
- * @brief Installs ECMAScript polyfills (e.g. Promise.prototype.finally) on the given engine.
- * Automatically invoked by toPromise/fromFuture, but can also be called explicitly during engine setup.
+ * @brief Installs Promise.prototype.finally on the given engine if it is missing.
+ * Call explicitly on the engine thread before using .finally(); conversion does not install it.
  */
-inline void installPolyfills(QJSEngine *engine)
+inline void installFinallyPolyfill(QJSEngine *engine)
 {
     if (!engine) {
+        return;
+    }
+
+    // Inspect the existing method without parsing/evaluating the polyfill again.
+    // Keep explicit installation useful if application code removes the method.
+    if (engine->globalObject().property(QStringLiteral("Promise"))
+            .property(QStringLiteral("prototype"))
+            .property(QStringLiteral("finally")).isCallable()) {
         return;
     }
 
@@ -80,23 +89,34 @@ inline bool createPromiseResolvers(QJSEngine *engine, QJSValue &promiseOut, QJSV
         return false;
     }
 
-    installPolyfills(engine);
+    // An engine-owned QJSValue keeps the compiled function alive across GC and
+    // cannot outlive its engine or be reused accidentally by a different engine.
+    // Use a QObject dynamic property, not a property of the JavaScript global object.
+    constexpr auto cacheKey = "_qmlpromise_v1_resolverFactory";
+    QJSValue factory = engine->property(cacheKey).value<QJSValue>();
+    if (!factory.isCallable()) {
+        factory = engine->evaluate(
+            QStringLiteral(
+                R"js(
+                    (() => {
+                        let resolve, reject;
+                        const promise = new Promise((res, rej) => {
+                            resolve = res;
+                            reject = rej;
+                        });
+                        return { promise, resolve, reject };
+                    })
+                )js"
+            )
+        );
+        if (!factory.isCallable()) {
+            return false;
+        }
+        engine->setProperty(cacheKey, QVariant::fromValue(factory));
+    }
 
-    // Standard deferred/promise-with-resolvers pattern
-    QJSValue helper = engine->evaluate(
-        QStringLiteral(
-            R"js(
-                (() => {
-                    let resolve, reject;
-                    const promise = new Promise((res, rej) => {
-                        resolve = res;
-                        reject = rej;
-                    });
-                    return { promise, resolve, reject };
-                })()
-            )js"
-        )
-    );
+    // Each call creates a fresh promise and independent resolve/reject functions.
+    QJSValue helper = factory.call();
 
     if (helper.isError() || !helper.isObject()) {
         return false;

@@ -11,7 +11,8 @@ In Qt Quick / QML:
 - `QFuture` and `QtConcurrent` offer great multithreading in C++, but Qt does **not** natively expose `QFuture` to QML as a JavaScript `Promise`.
 - QML's JavaScript engine (V4) implements ES6 `Promise` (`.then()`, `.catch()`, `Promise.all()`), but lacks native ES2018 `.finally()` support and a clean, zero-boilerplate bridge from `QFuture`.
 
-**`QmlPromise`** bridges `QFuture` directly to QML and automatically installs the ECMAScript-compliant `Promise.prototype.finally` polyfill so all standard promise chain methods work seamlessly.
+**`QmlPromise`** bridges `QFuture` directly to QML. An optional, explicitly installed
+`Promise.prototype.finally` polyfill provides `.finally()` support when the engine lacks it.
 
 
 ### C++ Backend
@@ -36,6 +37,20 @@ public:
     }
 };
 ```
+
+### Enable `.finally()` support
+
+Call this once per engine, on its thread, before loading QML that uses `.finally()`:
+
+```cpp
+QQmlApplicationEngine engine;
+QmlPromise::installFinallyPolyfill(&engine);
+// Load your QML here.
+```
+
+This is optional for `.then()`, `.catch()`, and `Promise.all()`. Installation is idempotent
+and leaves an existing native `.finally()` untouched. Promise conversion never installs
+or checks for the polyfill automatically.
 
 ### QML Consumption
 ```qml
@@ -93,9 +108,9 @@ QJSValue fromPromise(QObject *context, const QPromise<T> &promise, QJSEngine *en
 template <typename T>
 QJSValue toPromise(QObject *context, QFuture<T> future, QJSEngine *engine = nullptr);
 
-// Installs ECMAScript polyfills (e.g. Promise.prototype.finally) on the engine
-// (Automatically called by toPromise/fromFuture, or can be called explicitly during engine startup)
-void installPolyfills(QJSEngine *engine);
+// Explicitly installs Promise.prototype.finally if missing; safe to call repeatedly.
+// Call on the engine thread before using .finally(). Never called by conversion.
+void installFinallyPolyfill(QJSEngine *engine);
 
 }
 
@@ -126,6 +141,12 @@ target_link_libraries(my_qml_app PRIVATE
 When consumed via `FetchContent`, example apps and tests are automatically disabled, leaving only the lightweight `INTERFACE` library.
 
 ---
+
+## Performance
+
+The resolver factory is cached per JavaScript engine; subsequent conversions reuse it
+without reevaluating its source. See the [benchmarks](benchmarks/README.md) for measured
+overhead, comparisons with signals/callbacks, and reproduction instructions.
 
 ## Requirements
 

@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     QQmlApplicationEngine engine;
-    QmlPromise::installPolyfills(&engine);
+    QmlPromise::installFinallyPolyfill(&engine);
 
     QObject::connect(
         &engine,

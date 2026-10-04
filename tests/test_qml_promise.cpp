@@ -87,6 +87,97 @@ private:
     }
 
 private slots:
+    void testConversionWithoutFinallyPolyfill()
+    {
+        QJSEngine engine;
+        QObject context;
+        engine.evaluate("delete Promise.prototype.finally");
+        engine.globalObject().setProperty("p1",
+            QmlPromise::fromFuture(&context, QtFuture::makeReadyValueFuture(10), &engine));
+        engine.globalObject().setProperty("p2",
+            QmlPromise::fromFuture(&context, QtFuture::makeReadyValueFuture(20), &engine));
+        QPromise<int> producer;
+        producer.start();
+        engine.globalObject().setProperty("failed", QmlPromise::fromPromise(&context, producer, &engine));
+        QVERIFY(!engine.evaluate(
+            "var sum = 0; var error = '';"
+            "Promise.all([p1, p2]).then(values => sum = values[0] + values[1]);"
+            "failed.catch(reason => error = String(reason));"
+        ).isError());
+        producer.setException(std::make_exception_ptr(std::runtime_error("expected failure")));
+        producer.finish();
+        QTRY_COMPARE(engine.globalObject().property("sum").toInt(), 30);
+        QTRY_COMPARE(engine.globalObject().property("error").toString(), QStringLiteral("expected failure"));
+        QCOMPARE(engine.evaluate("typeof Promise.prototype.finally").toString(), QStringLiteral("undefined"));
+    }
+
+    void testCachedFactorySurvivesGarbageCollection()
+    {
+        QJSEngine engine;
+        QObject context;
+        QVERIFY(!engine.evaluate("var values = []; var failures = 0;").isError());
+        for (int i = 0; i < 16; ++i) {
+            QPromise<int> producer;
+            producer.start();
+            engine.globalObject().setProperty("promise", QmlPromise::fromPromise(&context, producer, &engine));
+            QVERIFY(!engine.evaluate("promise.then(v => values.push(v), () => ++failures);").isError());
+            engine.collectGarbage();
+            producer.addResult(i);
+            producer.finish();
+            QTRY_COMPARE(engine.evaluate("values.length").toInt(), i + 1);
+            QCOMPARE(engine.evaluate("values[values.length - 1]").toInt(), i);
+            engine.globalObject().deleteProperty("promise");
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            engine.collectGarbage();
+        }
+        QCOMPARE(engine.evaluate("failures").toInt(), 0);
+    }
+
+    void testCacheIsLocalToEachEngine()
+    {
+        QObject context;
+        // Recreate engines after destruction as well as using two simultaneously.
+        for (int round = 0; round < 3; ++round) {
+            QJSEngine first;
+            QJSEngine second;
+            first.evaluate("Promise.prototype.engineTag = 'first'; var result = 0;");
+            second.evaluate("Promise.prototype.engineTag = 'second'; var result = 0;");
+            QPromise<int> producer;
+            producer.start();
+            auto p1 = QmlPromise::fromPromise(&context, producer, &first);
+            auto p2 = QmlPromise::fromPromise(&context, producer, &second);
+            QCOMPARE(p1.property("engineTag").toString(), QStringLiteral("first"));
+            QCOMPARE(p2.property("engineTag").toString(), QStringLiteral("second"));
+            first.globalObject().setProperty("promise", p1);
+            second.globalObject().setProperty("promise", p2);
+            QVERIFY(!first.evaluate("promise.then(v => result = v);").isError());
+            QVERIFY(!second.evaluate("promise.then(v => result = v);").isError());
+            producer.addResult(round + 1);
+            producer.finish();
+            QTRY_COMPARE(first.globalObject().property("result").toInt(), round + 1);
+            QTRY_COMPARE(second.globalObject().property("result").toInt(), round + 1);
+        }
+    }
+
+    void testExplicitPolyfillRepairWithCachedFactory()
+    {
+        QJSEngine engine;
+        QObject context;
+        QmlPromise::fromFuture(&context, QtFuture::makeReadyValueFuture(1), &engine);
+        QmlPromise::installFinallyPolyfill(&engine);
+        QVERIFY(engine.evaluate("delete Promise.prototype.finally").toBool());
+        engine.globalObject().setProperty("promise",
+            QmlPromise::fromFuture(&context, QtFuture::makeReadyValueFuture(42), &engine));
+        QCOMPARE(engine.evaluate("typeof Promise.prototype.finally").toString(), QStringLiteral("undefined"));
+        QmlPromise::installFinallyPolyfill(&engine);
+        QVERIFY(!engine.evaluate(
+            "var result = 0; var cleanedUp = false;"
+            "promise.then(v => result = v).finally(() => cleanedUp = true);"
+        ).isError());
+        QTRY_VERIFY(engine.globalObject().property("cleanedUp").toBool());
+        QCOMPARE(engine.globalObject().property("result").toInt(), 42);
+    }
+
     void testIndependentObservers_data()
     {
         QTest::addColumn<int>("outcome");
@@ -260,7 +351,7 @@ private slots:
     {
         QJSEngine engine;
         engine.evaluate("delete Promise.prototype.finally");
-        QmlPromise::installPolyfills(&engine);
+        QmlPromise::installFinallyPolyfill(&engine);
         const auto check = engine.evaluate(R"js(
             (() => {
                 const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'finally');
@@ -274,7 +365,7 @@ private slots:
         QVERIFY2(!check.isError(), qPrintable(check.toString()));
         QVERIFY(check.toBool());
         const auto installed = engine.evaluate("Promise.prototype.finally");
-        QmlPromise::installPolyfills(&engine);
+        QmlPromise::installFinallyPolyfill(&engine);
         QVERIFY(installed.strictlyEquals(engine.evaluate("Promise.prototype.finally")));
     }
 
@@ -282,7 +373,7 @@ private slots:
     {
         QJSEngine engine;
         engine.evaluate("delete Promise.prototype.finally");
-        QmlPromise::installPolyfills(&engine);
+        QmlPromise::installFinallyPolyfill(&engine);
         const auto setup = engine.evaluate(R"js(
             var outcome = 'pending';
             function CustomPromise(executor) { return new Promise(executor); }
@@ -302,7 +393,7 @@ private slots:
     {
         QJSEngine engine;
         engine.evaluate("delete Promise.prototype.finally");
-        QmlPromise::installPolyfills(&engine);
+        QmlPromise::installFinallyPolyfill(&engine);
         const auto setup = engine.evaluate(R"js(
             var outcome = 'pending', constructions = 0;
             function Species(executor) { ++constructions; return new Promise(executor); }
@@ -332,6 +423,7 @@ private slots:
     void testPromiseFinallyResolved()
     {
         QJSEngine engine;
+        QmlPromise::installFinallyPolyfill(&engine);
         QObject context;
 
         QFuture<QString> future = QtConcurrent::run([]() {
@@ -361,6 +453,7 @@ private slots:
     void testPromiseFinallyRejected()
     {
         QJSEngine engine;
+        QmlPromise::installFinallyPolyfill(&engine);
         QObject context;
 
         QFuture<QString> future = QtConcurrent::run([]() -> QString {
@@ -392,6 +485,7 @@ private slots:
     void testPromiseChainedThenCatchFinally()
     {
         QJSEngine engine;
+        QmlPromise::installFinallyPolyfill(&engine);
         QObject context;
 
         QFuture<int> future = QtConcurrent::run([]() {
@@ -426,6 +520,7 @@ private slots:
     void testPromiseFinallyInQml()
     {
         QQmlEngine engine;
+        QmlPromise::installFinallyPolyfill(&engine);
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), this);
 
         QQmlComponent component(&engine);

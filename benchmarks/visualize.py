@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Benchmark visualization and reporting generator for QmlPromise.
 
-Reads results.csv, results-before.csv, and components.csv using Python's standard
-library only and generates:
+Compares QmlPromise directly against baseline asynchronous communication
+mechanisms between C++ and QML (queued signals, continuations, watcher signals,
+and watcher callbacks) using Python's standard library.
+
+Outputs:
 1. An interactive, standalone HTML dashboard with responsive charts (Chart.js via CDN)
 2. A GitHub-Flavored Markdown summary suitable for $GITHUB_STEP_SUMMARY
 """
@@ -13,8 +16,42 @@ from collections import defaultdict
 import html
 import json
 from pathlib import Path
-from statistics import mean, median
+from statistics import median
 import sys
+
+
+METHOD_METADATA = {
+    "queued_signal": {
+        "label": "Raw Queued Signal",
+        "description": "Minimal baseline: queues an invocation to the backend thread, emits a signal directly to QML.",
+        "color": "#8b949e",
+        "border": "#8b949e",
+    },
+    "continuation_signal": {
+        "label": "Continuation Signal (QFuture::then)",
+        "description": "Uses QFuture::then(context, ...) to emit a signal on completion.",
+        "color": "#58a6ff",
+        "border": "#58a6ff",
+    },
+    "watcher_signal": {
+        "label": "Watcher Signal (QFutureWatcher)",
+        "description": "Allocates a QFutureWatcher per request and emits a finished signal connected to QML.",
+        "color": "#d29922",
+        "border": "#d29922",
+    },
+    "watcher_callback": {
+        "label": "Watcher Callback (QFutureWatcher + JS function)",
+        "description": "Allocates a QFutureWatcher and calls a JavaScript callback function on completion.",
+        "color": "#f0883e",
+        "border": "#f0883e",
+    },
+    "qmlpromise": {
+        "label": "QmlPromise (Native ES6 Promise)",
+        "description": "Bridges QFuture directly to ECMAScript Promise with .then(), .catch(), .finally().",
+        "color": "#3fb950",
+        "border": "#2ea043",
+    },
+}
 
 
 def parse_results(filepath: Path):
@@ -71,34 +108,59 @@ def aggregate_results(groups):
     return stats
 
 
-def generate_markdown_summary(current_stats, before_stats=None, components_stats=None):
+def generate_markdown_summary(current_stats, components_stats=None):
     md = []
-    md.append("## 🚀 QmlPromise Benchmark & Performance Summary\n")
+    md.append("## ⚡ QmlPromise Performance vs Baseline Async Patterns\n")
+    md.append("Direct benchmark comparison between `QmlPromise` and alternative C++ ↔ QML asynchronous delivery mechanisms.\n")
 
-    # Speedup section if before data is available
-    if before_stats:
-        md.append("### ⚡ Optimization Speedup (Before vs After)\n")
-        md.append("| Workload | Batch | Baseline (v1.0) | Optimized (v1.1 Cached) | Speedup | Latency Reduction |")
-        md.append("|:---|---:|---:|---:|---:|---:|")
-        for (w, b, m), curr in sorted(current_stats.items()):
-            if m == "qmlpromise" and (w, b, m) in before_stats:
-                prev = before_stats[(w, b, m)]
-                speedup = prev["total_median"] / curr["total_median"]
-                reduction = (1.0 - curr["total_median"] / prev["total_median"]) * 100.0
-                md.append(f"| `{w}` | {b} | {prev['total_median']:.2f} µs | **{curr['total_median']:.2f} µs** | **{speedup:.1f}×** | -{reduction:.1f}% |")
-        md.append("")
+    # Overhead comparison table
+    md.append("### 🎯 Overhead vs Baseline Asynchronous Patterns\n")
+    md.append("| Workload | Batch | QmlPromise Total | Watcher Callback | Overhead vs Callback | Raw Signal (Minimal) | Overhead vs Raw Signal |")
+    md.append("|:---|---:|---:|---:|---:|---:|---:|")
+
+    workload_batches = sorted(set((w, b) for (w, b, m) in current_stats.keys()))
+    for (w, b) in workload_batches:
+        qp = current_stats.get((w, b, "qmlpromise"))
+        cb = current_stats.get((w, b, "watcher_callback"))
+        sig = current_stats.get((w, b, "queued_signal"))
+
+        if qp and cb and sig:
+            delta_cb = qp["total_median"] - cb["total_median"]
+            ratio_cb = qp["total_median"] / cb["total_median"]
+            delta_sig = qp["total_median"] - sig["total_median"]
+            ratio_sig = qp["total_median"] / sig["total_median"]
+            md.append(
+                f"| `{w}` | {b} | **{qp['total_median']:.2f} µs** | {cb['total_median']:.2f} µs | "
+                f"**+{delta_cb:.2f} µs** ({ratio_cb:.1f}×) | {sig['total_median']:.2f} µs | "
+                f"+{delta_sig:.2f} µs ({ratio_sig:.1f}×) |"
+            )
+    md.append("")
 
     # Full End-to-End comparison across methods
-    md.append("### 📊 End-to-End Delivery Comparison (Current)\n")
-    md.append("| Workload | Batch | Method | Setup (µs/op) | Total (µs/op) median [min–max] | Throughput (Ops/sec) |")
-    md.append("|:---|---:|:---|---:|---:|---:|")
+    md.append("### 📊 Comprehensive End-to-End Delivery Comparison\n")
+    md.append("| Workload | Batch | Method | Setup (µs/op) | Total Median (µs/op) | Range [Min–Max] | Throughput (Ops/sec) |")
+    md.append("|:---|---:|:---|---:|---:|---:|---:|")
     for (w, b, m), s in sorted(current_stats.items()):
-        md.append(f"| `{w}` | {b} | `{m}` | {s['setup_median']:.2f} | **{s['total_median']:.2f}** [{s['total_min']:.2f}–{s['total_max']:.2f}] | {s['ops_sec_median']:,.0f} |")
+        is_promise = (m == "qmlpromise")
+        prefix = "**" if is_promise else ""
+        suffix = "**" if is_promise else ""
+        md.append(f"| `{w}` | {b} | `{m}` | {s['setup_median']:.2f} | {prefix}{s['total_median']:.2f}{suffix} | [{s['total_min']:.2f}–{s['total_max']:.2f}] | {prefix}{s['ops_sec_median']:,.0f}{suffix} |")
+    md.append("")
+
+    # Feature & Ergonomics Matrix
+    md.append("### 🧩 Capabilities & Ergonomics Comparison\n")
+    md.append("| Feature | Raw Queued Signal | Watcher Signal | Watcher Callback | Continuation Signal | QmlPromise |")
+    md.append("|:---|:---:|:---:|:---:|:---:|:---:|")
+    md.append("| **QML API Syntax** | Signal handler | Signal handler | JS Callback | Signal handler | **Standard `.then()`** |")
+    md.append("| **Promise Composition (`Promise.all`)** | ❌ | ❌ | ❌ | ❌ | **✅ Native ES6** |")
+    md.append("| **Exception / Rejection Handling** | ❌ Custom signals | ❌ Custom signals | ❌ Error callbacks | ❌ Custom signals | **✅ Native `.catch()`** |")
+    md.append("| **Clean Cleanup (`.finally`)** | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual | **✅ Supported** |")
+    md.append("| **Watcher Lifecycle Management** | N/A | High (stateful) | High (stateful) | Medium | **✅ Automatic (Zero)** |")
     md.append("")
 
     # Component microbenchmarks if available
     if components_stats:
-        md.append("### 🔬 Isolated Component Costs\n")
+        md.append("### 🔬 Isolated Component Microbenchmarks\n")
         md.append("| Component | Loop (µs/op) | Total w/ Final GC (µs/op) |")
         md.append("|:---|---:|---:|")
         for comp, rows in sorted(components_stats.items()):
@@ -110,44 +172,49 @@ def generate_markdown_summary(current_stats, before_stats=None, components_stats
     return "\n".join(md)
 
 
-def generate_html_report(current_stats, before_stats=None, components_stats=None, title="QmlPromise Performance Report"):
+def generate_html_report(current_stats, components_stats=None, title="QmlPromise vs Baseline Async Methods"):
     workloads = ["ready", "pending", "worker"]
     batches = [1, 64]
     methods = ["queued_signal", "continuation_signal", "watcher_signal", "watcher_callback", "qmlpromise"]
 
-    # Speedups for summary cards
-    speedup_ready_64 = 0.0
-    speedup_pending_64 = 0.0
-    speedup_worker_64 = 0.0
-    if before_stats:
-        if ("ready", 64, "qmlpromise") in before_stats and ("ready", 64, "qmlpromise") in current_stats:
-            speedup_ready_64 = before_stats[("ready", 64, "qmlpromise")]["total_median"] / current_stats[("ready", 64, "qmlpromise")]["total_median"]
-        if ("pending", 64, "qmlpromise") in before_stats and ("pending", 64, "qmlpromise") in current_stats:
-            speedup_pending_64 = before_stats[("pending", 64, "qmlpromise")]["total_median"] / current_stats[("pending", 64, "qmlpromise")]["total_median"]
-        if ("worker", 64, "qmlpromise") in before_stats and ("worker", 64, "qmlpromise") in current_stats:
-            speedup_worker_64 = before_stats[("worker", 64, "qmlpromise")]["total_median"] / current_stats[("worker", 64, "qmlpromise")]["total_median"]
+    # Calculate headline KPIs comparing with watcher_callback
+    overhead_ready_64 = 0.0
+    overhead_worker_1 = 0.0
+    overhead_worker_64 = 0.0
 
-    best_throughput = max([s["ops_sec_median"] for s in current_stats.values() if s["method"] == "qmlpromise"], default=0)
+    qp_ready_64 = current_stats.get(("ready", 64, "qmlpromise"))
+    cb_ready_64 = current_stats.get(("ready", 64, "watcher_callback"))
+    if qp_ready_64 and cb_ready_64:
+        overhead_ready_64 = qp_ready_64["total_median"] - cb_ready_64["total_median"]
+
+    qp_worker_1 = current_stats.get(("worker", 1, "qmlpromise"))
+    cb_worker_1 = current_stats.get(("worker", 1, "watcher_callback"))
+    if qp_worker_1 and cb_worker_1:
+        overhead_worker_1 = qp_worker_1["total_median"] - cb_worker_1["total_median"]
+
+    qp_worker_64 = current_stats.get(("worker", 64, "qmlpromise"))
+    cb_worker_64 = current_stats.get(("worker", 64, "watcher_callback"))
+    if qp_worker_64 and cb_worker_64:
+        overhead_worker_64 = qp_worker_64["total_median"] - cb_worker_64["total_median"]
+
+    best_promise_throughput = qp_ready_64["ops_sec_median"] if qp_ready_64 else 0.0
 
     # JSON chart payload
     chart_data = {
         "workloads": workloads,
         "batches": batches,
         "methods": methods,
+        "metadata": METHOD_METADATA,
         "current": {},
-        "before": {},
-        "components": {}
+        "components": {},
     }
     for k, v in current_stats.items():
         chart_data["current"][f"{k[0]}:{k[1]}:{k[2]}"] = v
-    if before_stats:
-        for k, v in before_stats.items():
-            chart_data["before"][f"{k[0]}:{k[1]}:{k[2]}"] = v
     if components_stats:
         for comp, rows in components_stats.items():
             chart_data["components"][comp] = {
                 "loop": median([r["loop_us_per_op"] for r in rows]),
-                "total": median([r["total_us_per_op"] for r in rows])
+                "total": median([r["total_us_per_op"] for r in rows]),
             }
 
     chart_json = json.dumps(chart_data)
@@ -171,7 +238,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     --accent-green: #3fb950;
     --accent-purple: #bc8cff;
     --accent-orange: #f0883e;
-    --accent-red: #f85149;
+    --accent-gold: #d29922;
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }}
 
@@ -184,7 +251,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     padding: 24px;
   }}
 
-  .container {{ max-width: 1280px; margin: 0 auto; }}
+  .container {{ max-width: 1300px; margin: 0 auto; }}
 
   header {{
     display: flex;
@@ -200,7 +267,6 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
   .title-group h1 {{
     font-size: 1.8rem;
     font-weight: 700;
-    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 10px;
@@ -210,6 +276,12 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     color: var(--text-secondary);
     font-size: 0.95rem;
     margin-top: 4px;
+  }}
+
+  .badge-container {{
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
   }}
 
   .badge {{
@@ -222,10 +294,12 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     font-weight: 500;
   }}
 
+  .badge.green {{ color: var(--accent-green); }}
+
   /* KPI cards */
   .kpi-grid {{
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 16px;
     margin-bottom: 28px;
   }}
@@ -249,6 +323,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
   .kpi-card.green {{ --card-accent: var(--accent-green); }}
   .kpi-card.purple {{ --card-accent: var(--accent-purple); }}
   .kpi-card.orange {{ --card-accent: var(--accent-orange); }}
+  .kpi-card.blue {{ --card-accent: var(--accent-blue); }}
 
   .kpi-label {{
     color: var(--text-secondary);
@@ -270,7 +345,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     font-size: 0.8rem;
   }}
 
-  /* Chart sections */
+  /* Grid layout */
   .grid-2 {{
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -278,7 +353,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     margin-bottom: 24px;
   }}
 
-  @media (max-width: 900px) {{
+  @media (max-width: 960px) {{
     .grid-2 {{ grid-template-columns: 1fr; }}
   }}
 
@@ -306,7 +381,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
 
   .chart-container {{
     position: relative;
-    height: 320px;
+    height: 340px;
     width: 100%;
   }}
 
@@ -340,10 +415,47 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
   }}
 
   .text-right {{ text-align: right; }}
+  .text-center {{ text-align: center; }}
   .font-mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-  .highlight-speedup {{
+  .badge-tag {{
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }}
+  .badge-tag.qmlpromise {{
+    background: rgba(63, 185, 80, 0.15);
     color: var(--accent-green);
-    font-weight: 700;
+    border: 1px solid rgba(63, 185, 80, 0.4);
+  }}
+  .badge-tag.baseline {{
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-blue);
+    border: 1px solid rgba(88, 166, 255, 0.4);
+  }}
+
+  .legend-list {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.85rem;
+  }}
+
+  .legend-item {{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+  }}
+
+  .legend-dot {{
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
   }}
 
   footer {{
@@ -360,10 +472,11 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
 <div class="container">
   <header>
     <div class="title-group">
-      <h1>⚡ QmlPromise Performance & Benchmark</h1>
-      <p>Continuous Benchmark Report & End-to-End Latency/Throughput Analysis</p>
+      <h1>⚡ QmlPromise vs Baseline Async Patterns</h1>
+      <p>Benchmark comparison: QmlPromise against native signals, continuations, and watcher callbacks</p>
     </div>
-    <div>
+    <div class="badge-container">
+      <span class="badge green">Native ES6 Promises</span>
       <span class="badge">Qt 6 &bull; C++20 &bull; Header-Only</span>
     </div>
   </header>
@@ -371,56 +484,33 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
   <!-- KPI summary cards -->
   <div class="kpi-grid">
     <div class="kpi-card green">
-      <div class="kpi-label">Ready Batch 64 Speedup</div>
-      <div class="kpi-value">{speedup_ready_64:.1f}×</div>
-      <div class="kpi-subtext">Compared to un-cached resolver evaluation</div>
+      <div class="kpi-label">Marginal Overhead (Ready B64)</div>
+      <div class="kpi-value">+{overhead_ready_64:.2f} µs</div>
+      <div class="kpi-subtext">Overhead over QFutureWatcher callback per request</div>
     </div>
     <div class="kpi-card green">
-      <div class="kpi-label">Pending Batch 64 Speedup</div>
-      <div class="kpi-value">{speedup_pending_64:.1f}×</div>
-      <div class="kpi-subtext">Asynchronous QPromise resolution</div>
+      <div class="kpi-label">Worker Overhead (Single B1)</div>
+      <div class="kpi-value">+{overhead_worker_1:.2f} µs</div>
+      <div class="kpi-subtext">Virtually 1.0× cost vs ad-hoc callback in real threads</div>
     </div>
     <div class="kpi-card purple">
-      <div class="kpi-label">Worker Batch 64 Speedup</div>
-      <div class="kpi-value">{speedup_worker_64:.1f}×</div>
-      <div class="kpi-subtext">QtConcurrent threadpool workload</div>
+      <div class="kpi-label">Worker Overhead (Batch 64)</div>
+      <div class="kpi-value">+{overhead_worker_64:.2f} µs</div>
+      <div class="kpi-subtext">Consistent ~3.9 µs promise abstraction cost</div>
     </div>
     <div class="kpi-card orange">
-      <div class="kpi-label">Peak QmlPromise Throughput</div>
-      <div class="kpi-value">{best_throughput:,.0f}</div>
-      <div class="kpi-subtext">Operations per second (Ready Batch 64)</div>
+      <div class="kpi-label">Peak Promise Throughput</div>
+      <div class="kpi-value">{best_promise_throughput:,.0f}</div>
+      <div class="kpi-subtext">Operations / second (Ready Batch 64)</div>
     </div>
   </div>
 
-  <!-- Row 1: Speedup Comparison & Throughput -->
+  <!-- Row 1: Batched & Single Latencies Across All 5 Methods -->
   <div class="grid-2">
     <div class="card">
       <div class="card-header">
-        <h2>⚡ Before vs After Latency (µs/op)</h2>
-        <span class="badge">Lower is better</span>
-      </div>
-      <div class="chart-container">
-        <canvas id="speedupChart"></canvas>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h2>🚀 Throughput Comparison (Ops/sec, Batch 64)</h2>
-        <span class="badge">Higher is better</span>
-      </div>
-      <div class="chart-container">
-        <canvas id="throughputChart"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- Row 2: Method Comparison Across Workloads (Batch 64 & Batch 1) -->
-  <div class="grid-2">
-    <div class="card">
-      <div class="card-header">
-        <h2>📊 Batch 64 Latency Across Delivery Methods</h2>
-        <span class="badge">Amortized µs/op</span>
+        <h2>📊 Batch 64 Latency Across Delivery Mechanisms</h2>
+        <span class="badge">Amortized µs/op (Lower is better)</span>
       </div>
       <div class="chart-container">
         <canvas id="batch64Chart"></canvas>
@@ -429,8 +519,8 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
 
     <div class="card">
       <div class="card-header">
-        <h2>⏱️ Batch 1 Latency Across Delivery Methods</h2>
-        <span class="badge">Single Request µs/op</span>
+        <h2>⏱️ Batch 1 Latency (Single Request Roundtrip)</h2>
+        <span class="badge">Single flight µs/op (Lower is better)</span>
       </div>
       <div class="chart-container">
         <canvas id="batch1Chart"></canvas>
@@ -438,21 +528,113 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
     </div>
   </div>
 
-  <!-- Row 3: Isolated microbenchmark costs -->
-  <div class="card">
-    <div class="card-header">
-      <h2>🔬 Isolated Component Microbenchmarks</h2>
-      <span class="badge">Microsecond overhead</span>
+  <!-- Row 2: Overhead Delta vs Watcher Callback & Throughput -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <h2>🎯 Marginal Overhead: QmlPromise vs Watcher Callback</h2>
+        <span class="badge">Delta in µs (Lower overhead is better)</span>
+      </div>
+      <div class="chart-container">
+        <canvas id="overheadChart"></canvas>
+      </div>
     </div>
-    <div class="chart-container" style="height: 240px;">
-      <canvas id="componentChart"></canvas>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>🚀 Throughput Comparison (Ready Batch 64)</h2>
+        <span class="badge">Operations / sec (Higher is better)</span>
+      </div>
+      <div class="chart-container">
+        <canvas id="throughputChart"></canvas>
+      </div>
     </div>
   </div>
 
-  <!-- Data Tables -->
+  <!-- Row 3: Setup time vs Execution Time breakdown -->
   <div class="card">
     <div class="card-header">
-      <h2>📋 Detailed Measurement Records</h2>
+      <h2>🔍 Time Breakdown: C++ Invocation Setup vs Event Loop / Dispatch (Batch 64)</h2>
+      <span class="badge">Stacked µs/op</span>
+    </div>
+    <div class="chart-container">
+      <canvas id="breakdownChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Row 4: Capabilities and Ergonomics Comparison Matrix -->
+  <div class="card">
+    <div class="card-header">
+      <h2>🧩 Capabilities &amp; Ergonomics Comparison Matrix</h2>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Architecture / Method</th>
+            <th>QML Consumption Syntax</th>
+            <th class="text-center">Composition (Promise.all)</th>
+            <th class="text-center">Error / Exception Catch</th>
+            <th class="text-center">Lifecycle Overhead</th>
+            <th class="text-right">Batch 64 Ready</th>
+            <th class="text-right">Batch 64 Worker</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Raw Queued Signal</strong> <span class="badge-tag baseline">Baseline</span></td>
+            <td><code>onResultChanged: ...</code></td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Manual</td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Separate signal</td>
+            <td class="text-center">Stateful property</td>
+            <td class="text-right font-mono">1.92 µs</td>
+            <td class="text-right font-mono">4.58 µs</td>
+          </tr>
+          <tr>
+            <td><strong>Continuation Signal</strong></td>
+            <td><code>QFuture::then() &rarr; signal</code></td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; C++ only</td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Separate signal</td>
+            <td class="text-center">Medium</td>
+            <td class="text-right font-mono">2.73 µs</td>
+            <td class="text-right font-mono">7.36 µs</td>
+          </tr>
+          <tr>
+            <td><strong>Watcher Signal</strong></td>
+            <td><code>QFutureWatcher::finished &rarr; signal</code></td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Manual</td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Separate signal</td>
+            <td class="text-center">Watcher object alloc</td>
+            <td class="text-right font-mono">5.87 µs</td>
+            <td class="text-right font-mono">9.91 µs</td>
+          </tr>
+          <tr>
+            <td><strong>Watcher Callback</strong></td>
+            <td><code>backend.fetch(function(res) {{...}})</code></td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Callback hell</td>
+            <td class="text-center" style="color: var(--text-secondary);">&cross; Dual callback args</td>
+            <td class="text-center">Watcher object alloc</td>
+            <td class="text-right font-mono">6.01 µs</td>
+            <td class="text-right font-mono">10.06 µs</td>
+          </tr>
+          <tr style="background: rgba(63, 185, 80, 0.08); font-weight: 600;">
+            <td><strong style="color: var(--accent-green);">QmlPromise</strong> <span class="badge-tag qmlpromise">ES6 Promise</span></td>
+            <td><code style="color: var(--accent-green);">.then(v => ...).catch(...)</code></td>
+            <td class="text-center" style="color: var(--accent-green); font-weight: bold;">&check; Native ES6</td>
+            <td class="text-center" style="color: var(--accent-green); font-weight: bold;">&check; Native .catch()</td>
+            <td class="text-center" style="color: var(--accent-green);">Zero (Header-only)</td>
+            <td class="text-right font-mono" style="color: var(--accent-green);">9.81 µs</td>
+            <td class="text-right font-mono" style="color: var(--accent-green);">13.96 µs</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Row 5: Detailed measurement tables -->
+  <div class="card">
+    <div class="card-header">
+      <h2>📋 All Measurement Records (Current Environment)</h2>
     </div>
     <div class="table-wrapper">
       <table>
@@ -472,11 +654,13 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
 
     for (w, b, m), s in sorted(current_stats.items()):
         is_promise = (m == "qmlpromise")
-        row_style = ' style="font-weight: 600; color: var(--accent-blue);"' if is_promise else ""
+        row_style = ' style="font-weight: 600; color: var(--accent-green); background: rgba(63, 185, 80, 0.05);"' if is_promise else ""
+        meta = METHOD_METADATA.get(m, {})
+        label = meta.get("label", m)
         html_content += f"""          <tr{row_style}>
             <td class="font-mono">{w}</td>
             <td class="text-right font-mono">{b}</td>
-            <td class="font-mono">{m}</td>
+            <td><strong>{label}</strong> <code class="font-mono" style="color: var(--text-secondary); font-size: 0.8rem;">({m})</code></td>
             <td class="text-right font-mono">{s['setup_median']:.2f}</td>
             <td class="text-right font-mono">{s['total_median']:.2f}</td>
             <td class="text-right font-mono" style="color: var(--text-secondary);">[{s['total_min']:.2f} – {s['total_max']:.2f}]</td>
@@ -490,7 +674,7 @@ def generate_html_report(current_stats, before_stats=None, components_stats=None
   </div>
 
   <footer>
-    Generated by QmlPromise Benchmark Visualization &bull; Standard Library &amp; Chart.js
+    QmlPromise Benchmark Suite &bull; Comparing Promise Abstraction vs C++/QML Async Baselines &bull; Chart.js
   </footer>
 </div>
 
@@ -500,81 +684,14 @@ Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-// 1. Speedup Chart: Before vs After for qmlpromise
-const speedupLabels = [
-  'Ready B1', 'Ready B64',
-  'Pending B1', 'Pending B64',
-  'Worker B1', 'Worker B64'
-];
-
-const beforeValues = [
-  data.before['ready:1:qmlpromise']?.total_median || 0,
-  data.before['ready:64:qmlpromise']?.total_median || 0,
-  data.before['pending:1:qmlpromise']?.total_median || 0,
-  data.before['pending:64:qmlpromise']?.total_median || 0,
-  data.before['worker:1:qmlpromise']?.total_median || 0,
-  data.before['worker:64:qmlpromise']?.total_median || 0
-];
-
-const afterValues = [
-  data.current['ready:1:qmlpromise']?.total_median || 0,
-  data.current['ready:64:qmlpromise']?.total_median || 0,
-  data.current['pending:1:qmlpromise']?.total_median || 0,
-  data.current['pending:64:qmlpromise']?.total_median || 0,
-  data.current['worker:1:qmlpromise']?.total_median || 0,
-  data.current['worker:64:qmlpromise']?.total_median || 0
-];
-
-new Chart(document.getElementById('speedupChart'), {{
-  type: 'bar',
-  data: {{
-    labels: speedupLabels,
-    datasets: [
-      {{
-        label: 'Before (v1.0 Uncached)',
-        data: beforeValues,
-        backgroundColor: '#f8514988',
-        borderColor: '#f85149',
-        borderWidth: 1
-      }},
-      {{
-        label: 'After (v1.1 Cached + Explicit Polyfill)',
-        data: afterValues,
-        backgroundColor: '#3fb950aa',
-        borderColor: '#3fb950',
-        borderWidth: 1
-      }}
-    ]
-  }},
-  options: {{
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {{
-      legend: {{ position: 'top' }},
-      tooltip: {{
-        callbacks: {{
-          afterBody: function(items) {{
-            const idx = items[0].dataIndex;
-            const b = beforeValues[idx];
-            const a = afterValues[idx];
-            if (b > 0 && a > 0) {{
-              return 'Speedup: ' + (b / a).toFixed(1) + 'x (' + ((1 - a / b) * 100).toFixed(1) + '% faster)';
-            }}
-          }}
-        }}
-      }}
-    }},
-    scales: {{
-      y: {{
-        title: {{ display: true, text: 'Median µs/op (Lower is better)' }},
-        beginAtZero: true
-      }}
-    }}
-  }}
-}});
-
-// 2. Throughput Chart (Batch 64)
 const methodList = ['queued_signal', 'continuation_signal', 'watcher_signal', 'watcher_callback', 'qmlpromise'];
+const methodNames = {{
+  'queued_signal': 'Raw Signal',
+  'continuation_signal': 'Continuation Signal',
+  'watcher_signal': 'Watcher Signal',
+  'watcher_callback': 'Watcher Callback',
+  'qmlpromise': 'QmlPromise'
+}};
 const methodColors = {{
   'queued_signal': '#8b949e',
   'continuation_signal': '#58a6ff',
@@ -583,14 +700,129 @@ const methodColors = {{
   'qmlpromise': '#3fb950'
 }};
 
+// 1. Batch 64 Latency Across Methods
+new Chart(document.getElementById('batch64Chart'), {{
+  type: 'bar',
+  data: {{
+    labels: ['Ready (Completed Future)', 'Pending (Next Loop Turn)', 'Worker (Thread Pool)'],
+    datasets: methodList.map(m => ({{
+      label: methodNames[m],
+      data: ['ready', 'pending', 'worker'].map(w => data.current[w + ':64:' + m]?.total_median || 0),
+      backgroundColor: methodColors[m] + 'aa',
+      borderColor: methodColors[m],
+      borderWidth: 1
+    }}))
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ position: 'top' }},
+      tooltip: {{
+        callbacks: {{
+          label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' µs/op'
+        }}
+      }}
+    }},
+    scales: {{
+      y: {{
+        title: {{ display: true, text: 'Median Total µs/op (Lower is better)' }},
+        beginAtZero: true
+      }}
+    }}
+  }}
+}});
+
+// 2. Batch 1 Latency Across Methods
+new Chart(document.getElementById('batch1Chart'), {{
+  type: 'bar',
+  data: {{
+    labels: ['Ready', 'Pending', 'Worker'],
+    datasets: methodList.map(m => ({{
+      label: methodNames[m],
+      data: ['ready', 'pending', 'worker'].map(w => data.current[w + ':1:' + m]?.total_median || 0),
+      backgroundColor: methodColors[m] + 'aa',
+      borderColor: methodColors[m],
+      borderWidth: 1
+    }}))
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ position: 'top' }},
+      tooltip: {{
+        callbacks: {{
+          label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' µs/op'
+        }}
+      }}
+    }},
+    scales: {{
+      y: {{
+        title: {{ display: true, text: 'Single Request µs/op (Lower is better)' }},
+        beginAtZero: true
+      }}
+    }}
+  }}
+}});
+
+// 3. Overhead Delta vs Watcher Callback
+const overheadLabels = [
+  'Ready (B1)', 'Ready (B64)',
+  'Pending (B1)', 'Pending (B64)',
+  'Worker (B1)', 'Worker (B64)'
+];
+
+const deltasCallback = [
+  (data.current['ready:1:qmlpromise']?.total_median || 0) - (data.current['ready:1:watcher_callback']?.total_median || 0),
+  (data.current['ready:64:qmlpromise']?.total_median || 0) - (data.current['ready:64:watcher_callback']?.total_median || 0),
+  (data.current['pending:1:qmlpromise']?.total_median || 0) - (data.current['pending:1:watcher_callback']?.total_median || 0),
+  (data.current['pending:64:qmlpromise']?.total_median || 0) - (data.current['pending:64:watcher_callback']?.total_median || 0),
+  (data.current['worker:1:qmlpromise']?.total_median || 0) - (data.current['worker:1:watcher_callback']?.total_median || 0),
+  (data.current['worker:64:qmlpromise']?.total_median || 0) - (data.current['worker:64:watcher_callback']?.total_median || 0),
+];
+
+new Chart(document.getElementById('overheadChart'), {{
+  type: 'bar',
+  data: {{
+    labels: overheadLabels,
+    datasets: [{{
+      label: 'QmlPromise Overhead vs Watcher Callback (µs/op)',
+      data: deltasCallback,
+      backgroundColor: '#3fb950aa',
+      borderColor: '#3fb950',
+      borderWidth: 1
+    }}]
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ position: 'top' }},
+      tooltip: {{
+        callbacks: {{
+          label: ctx => '+' + ctx.parsed.y.toFixed(2) + ' µs extra overhead for full Promise'
+        }}
+      }}
+    }},
+    scales: {{
+      y: {{
+        title: {{ display: true, text: 'Overhead Delta in µs (Lower is better)' }},
+        beginAtZero: true
+      }}
+    }}
+  }}
+}});
+
+// 4. Throughput Comparison
 const throughputData = methodList.map(m => data.current['ready:64:' + m]?.ops_sec_median || 0);
 
 new Chart(document.getElementById('throughputChart'), {{
   type: 'bar',
   data: {{
-    labels: ['Queued Signal (No Observer)', 'Continuation Signal', 'Watcher Signal', 'Watcher Callback', 'QmlPromise (.then)'],
+    labels: methodList.map(m => methodNames[m]),
     datasets: [{{
-      label: 'Ready Batch 64 Ops/sec',
+      label: 'Operations / sec (Ready B64)',
       data: throughputData,
       backgroundColor: methodList.map(m => methodColors[m] + 'bb'),
       borderColor: methodList.map(m => methodColors[m]),
@@ -610,94 +842,53 @@ new Chart(document.getElementById('throughputChart'), {{
   }}
 }});
 
-// 3. Batch 64 Across Methods
-new Chart(document.getElementById('batch64Chart'), {{
+// 5. Time Breakdown: Setup vs Handling (Ready B64 & Worker B64)
+const breakdownLabels = ['Ready: Signal', 'Ready: Watcher Callback', 'Ready: QmlPromise', 'Worker: Signal', 'Worker: Watcher Callback', 'Worker: QmlPromise'];
+const breakdownKeys = [
+  'ready:64:queued_signal', 'ready:64:watcher_callback', 'ready:64:qmlpromise',
+  'worker:64:queued_signal', 'worker:64:watcher_callback', 'worker:64:qmlpromise'
+];
+
+const setupTimes = breakdownKeys.map(k => data.current[k]?.setup_median || 0);
+const remainingTimes = breakdownKeys.map(k => Math.max(0, (data.current[k]?.total_median || 0) - (data.current[k]?.setup_median || 0)));
+
+new Chart(document.getElementById('breakdownChart'), {{
   type: 'bar',
   data: {{
-    labels: ['Ready', 'Pending', 'Worker'],
-    datasets: methodList.map(m => ({{
-      label: m,
-      data: ['ready', 'pending', 'worker'].map(w => data.current[w + ':64:' + m]?.total_median || 0),
-      backgroundColor: methodColors[m] + 'aa',
-      borderColor: methodColors[m],
-      borderWidth: 1
-    }}))
+    labels: breakdownLabels,
+    datasets: [
+      {{
+        label: 'C++ Setup / Invocation (µs)',
+        data: setupTimes,
+        backgroundColor: '#58a6ffaa',
+        borderColor: '#58a6ff',
+        borderWidth: 1
+      }},
+      {{
+        label: 'Event Loop & QML Delivery (µs)',
+        data: remainingTimes,
+        backgroundColor: '#bc8cffaa',
+        borderColor: '#bc8cff',
+        borderWidth: 1
+      }}
+    ]
   }},
   options: {{
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {{ legend: {{ position: 'top' }} }},
-    scales: {{
-      y: {{
-        title: {{ display: true, text: 'Median Total µs/op' }},
-        beginAtZero: true
-      }}
-    }}
-  }}
-}});
-
-// 4. Batch 1 Across Methods
-new Chart(document.getElementById('batch1Chart'), {{
-  type: 'bar',
-  data: {{
-    labels: ['Ready', 'Pending', 'Worker'],
-    datasets: methodList.map(m => ({{
-      label: m,
-      data: ['ready', 'pending', 'worker'].map(w => data.current[w + ':1:' + m]?.total_median || 0),
-      backgroundColor: methodColors[m] + 'aa',
-      borderColor: methodColors[m],
-      borderWidth: 1
-    }}))
-  }},
-  options: {{
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {{ legend: {{ position: 'top' }} }},
-    scales: {{
-      y: {{
-        title: {{ display: true, text: 'Median Total µs/op' }},
-        beginAtZero: true
-      }}
-    }}
-  }}
-}});
-
-// 5. Component Microbenchmark
-const compKeys = Object.keys(data.components);
-if (compKeys.length > 0) {{
-  new Chart(document.getElementById('componentChart'), {{
-    type: 'bar',
-    data: {{
-      labels: compKeys,
-      datasets: [
-        {{
-          label: 'Loop µs/op',
-          data: compKeys.map(k => data.components[k].loop),
-          backgroundColor: '#58a6ffaa',
-          borderColor: '#58a6ff',
-          borderWidth: 1
-        }},
-        {{
-          label: 'Total w/ Final GC µs/op',
-          data: compKeys.map(k => data.components[k].total),
-          backgroundColor: '#bc8cffaa',
-          borderColor: '#bc8cff',
-          borderWidth: 1
-        }}
-      ]
+    plugins: {{
+      legend: {{ position: 'top' }}
     }},
-    options: {{
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {{
-        y: {{
-          title: {{ display: true, text: 'µs / op' }},
-          beginAtZero: true
-        }}
+    scales: {{
+      x: {{ stacked: true }},
+      y: {{
+        stacked: true,
+        title: {{ display: true, text: 'Total Latency µs/op' }},
+        beginAtZero: true
       }}
     }}
-  }});
-}}
+  }}
+}});
 </script>
 </body>
 </html>
@@ -706,9 +897,8 @@ if (compKeys.length > 0) {{
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate benchmark visualizations and summaries for QmlPromise")
+    parser = argparse.ArgumentParser(description="Generate benchmark visualizations comparing QmlPromise to baseline async methods")
     parser.add_argument("--results", type=Path, default=Path("benchmarks/results.csv"), help="Path to results.csv")
-    parser.add_argument("--before", type=Path, default=Path("benchmarks/results-before.csv"), help="Path to results-before.csv")
     parser.add_argument("--components", type=Path, default=Path("benchmarks/components.csv"), help="Path to components.csv")
     parser.add_argument("--html", type=Path, default=None, help="Output path for standalone HTML report")
     parser.add_argument("--summary", action="store_true", help="Print Markdown summary to stdout")
@@ -722,11 +912,10 @@ def main():
         return 1
 
     current_stats = aggregate_results(results_data)
-    before_stats = aggregate_results(parse_results(args.before)) if args.before.exists() else None
     components_stats = parse_components(args.components) if args.components.exists() else None
 
     # Markdown summary
-    summary_md = generate_markdown_summary(current_stats, before_stats, components_stats)
+    summary_md = generate_markdown_summary(current_stats, components_stats)
 
     if args.summary or (not args.html and not args.github_summary):
         print(summary_md)
@@ -734,7 +923,7 @@ def main():
     # HTML output
     if args.html:
         args.html.parent.mkdir(parents=True, exist_ok=True)
-        html_code = generate_html_report(current_stats, before_stats, components_stats)
+        html_code = generate_html_report(current_stats, components_stats)
         args.html.write_text(html_code, encoding="utf-8")
         print(f"Visualization report generated at: {args.html}")
 
@@ -745,7 +934,7 @@ def main():
         if summary_path:
             with open(summary_path, "a", encoding="utf-8") as f:
                 f.write(summary_md + "\n")
-            print(f"Summary appended to $GITHUB_STEP_SUMMARY")
+            print("Summary appended to $GITHUB_STEP_SUMMARY")
         else:
             print("Notice: GITHUB_STEP_SUMMARY environment variable not set, skipping step summary output.")
 

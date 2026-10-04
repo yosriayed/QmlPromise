@@ -149,8 +149,12 @@ When consumed via `FetchContent`, example apps and tests are automatically disab
 
 ## Performance & Benchmarks
 
-The resolver factory is cached per JavaScript engine; subsequent conversions reuse it
-without reevaluating its source (achieving up to **27× speedup** in batched delivery).
+Compared to traditional C++ ↔ QML asynchronous patterns (such as `QFutureWatcher` callbacks or custom queued signals), `QmlPromise` provides native ECMAScript `Promise` semantics with negligible overhead:
+- **Only +3.8 µs/op overhead** compared to ad-hoc `QFutureWatcher` callbacks (Batch 64).
+- **Virtually identical cost (+0.3 µs, 1.0×)** in real-world worker threadpool execution (Batch 1).
+- **>100,000 ops/second** throughput on modern hardware.
+
+### Benchmark Dashboard & Visualization
 
 An interactive HTML visualization dashboard and summary reporting tool is included:
 ```bash

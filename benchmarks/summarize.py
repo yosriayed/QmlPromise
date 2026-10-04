@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print median and range of benchmark samples; only Python's standard library is needed."""
+"""Print median and range of benchmark samples comparing QmlPromise to baseline async methods."""
 import csv
 from collections import defaultdict
 from pathlib import Path
@@ -31,18 +31,22 @@ for component, rows in sorted(groups.items()):
     total = median(float(row["total_us_per_op"]) for row in rows)
     print(f"| {component} | {loop:.2f} | {total:.2f} |")
 
-def bridge_medians(filename):
-    samples = defaultdict(list)
-    with (directory / filename).open() as source:
-        for row in csv.DictReader(source):
-            if row["method"] == "qmlpromise":
-                samples[(row["workload"], int(row["batch"]))].append(float(row["total_us_per_op"]))
-    return {key: median(values) for key, values in samples.items()}
+# Baseline comparison: QmlPromise vs alternative async mechanisms
+medians = {}
+with (directory / "results.csv").open() as source:
+    raw = defaultdict(list)
+    for row in csv.DictReader(source):
+        raw[(row["workload"], int(row["batch"]), row["method"])].append(float(row["total_us_per_op"]))
+    for key, values in raw.items():
+        medians[key] = median(values)
 
-before = bridge_medians("results-before.csv")
-after = bridge_medians("results.csv")
-print("\n| QmlPromise workload | Batch | Before µs/op | After µs/op | Speedup |")
-print("|---|---:|---:|---:|---:|")
-for (workload, batch), value in sorted(after.items()):
-    original = before[(workload, batch)]
-    print(f"| {workload} | {batch} | {original:.2f} | {value:.2f} | {original/value:.1f}× |")
+print("\n### QmlPromise Overhead vs Baseline Async Mechanisms")
+print("| Workload | Batch | QmlPromise µs | Watcher Callback µs | Overhead vs Callback | Raw Signal µs | Overhead vs Signal |")
+print("|---|---:|---:|---:|---:|---:|---:|")
+for (workload, batch) in sorted(set((w, b) for (w, b, m) in medians.keys())):
+    qp = medians.get((workload, batch, "qmlpromise"), 0.0)
+    cb = medians.get((workload, batch, "watcher_callback"), 0.0)
+    sig = medians.get((workload, batch, "queued_signal"), 0.0)
+    delta_cb = qp - cb
+    delta_sig = qp - sig
+    print(f"| {workload} | {batch} | {qp:.2f} | {cb:.2f} | +{delta_cb:.2f} µs ({qp/cb:.1f}×) | {sig:.2f} | +{delta_sig:.2f} µs ({qp/sig:.1f}×) |")

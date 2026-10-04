@@ -1,6 +1,5 @@
 # QmlPromise
 
-[![CI](https://github.com/yosriayed/QmlPromise/actions/workflows/ci.yml/badge.svg)](https://github.com/yosriayed/QmlPromise/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Qt: 6.5+](https://img.shields.io/badge/Qt-6.5+-41CD52.svg)](https://www.qt.io/)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg)](https://en.cppreference.com/w/cpp/20)
